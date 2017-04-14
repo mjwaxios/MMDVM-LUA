@@ -135,15 +135,17 @@ function dmr.dissector(tvbuf,pktinfo,root)
     -- TODO if we are in a voice super-frame the sync type
     --      will simply be a counter
     if sync_value == UInt64(0xf77fd757, 0x0000d5d7) then
-        subtree:add(
-	    pf_sync_type,
-	    "MS_D"
-	)
+        subtree:add(pf_sync_type, "MS_D")
+    elseif sync_value == UInt64(0x5dd57dFD, 0x00007f7d) then
+	subtree:add(pf_sync_type, "MS_V")
+    elseif sync_value == UInt64(0xd7df75f7, 0x0000755f) then
+	subtree:add(pf_sync_type, "BS_V")
+    elseif sync_value == UInt64(0x7d75df5d, 0x0000dff5) then
+	subtree:add(pf_sync_type, "BS_D")
+    elseif sync_value == UInt64(0x5f7dfd77, 0x000077d5) then
+	subtree:add(pf_sync_type, "RC")
     else
-        subtree:add(
-	    pf_sync_type,
-	    "UNK"
-	)
+        subtree:add(pf_sync_type, "UNK")
     end 
 
     -- this is a really crude way to strip out the
