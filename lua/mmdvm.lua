@@ -33,15 +33,21 @@ local f_Slot = ProtoField.uint8("mmdvm.Slot", "Slot", base.DEC, nil, 0x80)
 local f_dsync = ProtoField.uint8("mmdvm.dsync", "DSync", base.DEC, nil, 0x40)
 local f_async = ProtoField.uint8("mmdvm.async", "ASync", base.DEC, nil, 0x20)
 local f_dtype = ProtoField.uint8("mmdvm.dtype", "DType", base.HEX, DATATYPE, 0x0F)
+local f_seq = ProtoField.uint8("mmdvm.seq", "Seq", base.HEX, nil, 0x0F)
 local f_data = ProtoField.string("mmdvm.data", "Data", FT_STRING)
   
-p_mmdvm.fields = {f_fstart, f_len, f_type, f_Slot, f_dsync, f_async, f_dtype, f_dmrdata}
+p_mmdvm.fields = {f_fstart, f_len, f_type, f_Slot, f_dsync, f_async, f_dtype, f_dmrdata, f_seq}
+
+local dsync_Field = Field.new("mmdvm.dsync")
+local async_Field = Field.new("mmdvm.async")
+local dtype_Field = Field.new("mmdvm.dtype")
+local seq_Field = Field.new("mmdvm.seq")
    
  -- myproto dissector function
-function p_mmdvm.dissector (buf, pkt, root)
+function p_mmdvm.dissector (buf, pinfo, root)
    -- validate packet length is adequate, otherwise quit
   if buf:len() == 0 then return end
-  pkt.cols.protocol = p_mmdvm.name
+  pinfo.cols.protocol = p_mmdvm.name
   subtree = root:add(p_mmdvm, buf(0))
   subtree:add(f_fstart, buf(0,1))
   subtree:add(f_len, buf(1,1))
@@ -49,8 +55,20 @@ function p_mmdvm.dissector (buf, pkt, root)
   subtree:add(f_Slot, buf(3,1))
   subtree:add(f_dsync, buf(3,1))
   subtree:add(f_async, buf(3,1))
+  
+  -- Check for DataSync and Decode low nibble
+  if dsync_Field().value == 1 then
+    subtree:add(f_dtype, buf(3,1))
+    local dt = dtype_Field().value
+    pinfo.cols.info:append("Data SYNC " .. tostring( DATATYPE[dt] ))
+  elseif async_Field().value == 1 then
+    pinfo.cols.info:append("Voice SYNC ")
+  else
+    subtree:add(f_seq, buf(3,1))
+    pinfo.cols.info:append("Seq " .. tostring(seq_Field().value) .. " ")  
+  end
 
-  Dissector.get("dmr"):call(buf(4):tvb(), pkt, root)
+  Dissector.get("dmr"):call(buf(4):tvb(), pinfo, root)
 end
                         
 function p_mmdvm.init()
