@@ -1,6 +1,6 @@
 p_mmdvm = Proto ("mmdvm","MMDVM")
 
-local FRAMETYPE = {
+local COMMAND = {
         [0x00] = "VERSION",
         [0x01] = "STATUS",
         [0x02] = "CONFIG",
@@ -58,7 +58,7 @@ local DATATYPE = { [0x0] = "PI Header",
 
 local f_fstart = ProtoField.uint8("mmdvm.fstart", "FrameStart", base.HEX)
 local f_len = ProtoField.uint8("mmdvm.len", "Length", base.DEC)
-local f_type = ProtoField.uint8("mmdvm.type", "Type", base.HEX, FRAMETYPE)
+local f_Command = ProtoField.uint8("mmdvm.Command", "Command", base.HEX, COMMAND)
 local f_Slot = ProtoField.uint8("mmdvm.Slot", "Slot", base.DEC, nil, 0x80)
 local f_dsync = ProtoField.uint8("mmdvm.dsync", "DSync", base.DEC, nil, 0x40)
 local f_async = ProtoField.uint8("mmdvm.async", "ASync", base.DEC, nil, 0x20)
@@ -69,17 +69,17 @@ local f_rxf = ProtoField.uint32("mmdvm.rxf", "RX Freq", base.DEC)
 local f_txf = ProtoField.uint32("mmdvm.txf", "TX Freq", base.DEC)
 
 -- Generic MMDVM Commands and Responses
-local f_Cmd = ProtoField.uint8("mmdvm.Cmd", "CMD", base.HEX, FRAMETYPE)
+local f_Cmd = ProtoField.uint8("mmdvm.Cmd", "CMD", base.HEX, COMMAND)
 local f_Reaspm = ProtoField.uint8("mmdvm.Reason", "Reason", base.HEX)
 local f_pversion = ProtoField.uint8("mmdvm.pversion", "Protocol Version", base.HEX)
 local f_verstr = ProtoField.string("mmdvm.verstr", "Hardware Version", FT_STRING)
   
-p_mmdvm.fields = {f_fstart, f_len, f_type, f_Slot, f_dsync, f_async, f_dtype, f_dmrdata, f_seq, 
+p_mmdvm.fields = {f_fstart, f_len, f_Command, f_Slot, f_dsync, f_async, f_dtype, f_dmrdata, f_seq, 
   f_Cmd, f_Reason, f_pversion, f_verstr, f_rxf, f_txf
   }
 
 local fstart_Field = Field.new("mmdvm.fstart")
-local ftype_Field = Field.new("mmdvm.type")
+local Command_Field = Field.new("mmdvm.Command")
 local dsync_Field = Field.new("mmdvm.dsync")
 local async_Field = Field.new("mmdvm.async")
 local dtype_Field = Field.new("mmdvm.dtype")
@@ -90,49 +90,54 @@ local len_Field = Field.new("mmdvm.len")
 function p_mmdvm.dissector (buf, pinfo, root)
    -- validate packet length is adequate, otherwise quit
   if buf:len() == 0 then return end
-  pinfo.cols.protocol:append(p_mmdvm.name .. " ")
-  subtree = root:add(p_mmdvm, buf(0))
-  subtree:add(f_fstart, buf(0,1))
-  
+ 
   -- Check N3UC addition of RX/TX Flag on Frame Start
-  if fstart_Field().value == 0xE1 then
-    pinfo.cols.protocol:append("TX ")  
-  else
-    pinfo.cols.protocol:append("RX ")    
-  end
+  local RXTX = buf(0,1):uint() == 0xE1 
+
+  subtree = root:add(p_mmdvm, buf(0))
+  subtree:add(f_fstart, buf(0,1)) 
   
+  pinfo.cols.protocol:append(p_mmdvm.name)
+  if RXTX == true then
+    pinfo.cols.protocol:append(" TX ")
+  else
+    pinfo.cols.protocol:append(" RX ")  
+  end
+
   subtree:add(f_len, buf(1,1))
   local Length = len_Field().value;
   
-  subtree:add(f_type, buf(2,1)) 
-  local FrameType = ftype_Field().value
+  subtree:add(f_Command, buf(2,1)) 
+  local Command = Command_Field().value
   
   -- ACK
-  if FrameType == 0x70 then
+  if Command == 0x70 then
     subtree:add(f_Cmd, buf(3,1))   
-    pinfo.cols.info:append("ACK Command " .. tostring( buf(3,1) ))
-  elseif FrameType == 0x7F then
+    pinfo.cols.info:append("ACK Command " .. buf(3,1) )
+  elseif Command == 0x7F then
     subtree:add(f_Cmd, buf(3,1))   
     subtree:add(f_Reason, buf(4,1))   
-    pinfo.cols.info:append("NAK Command " .. tostring( buf(3,1) .. " Reason " .. tostring(buf(4,1)) ))
-  elseif FrameType == 0x00 then
+    pinfo.cols.info:append("NAK Command " .. buf(3,1) .. " Reason " .. buf(4,1) )
+  elseif Command == 0x00 then
     pinfo.cols.info:append("Version ")
-    subtree:add(f_pversion, buf(3,1))     
-    subtree:add(f_verstr, buf(4, Length -4))
-  elseif FrameType == 0x01 then
+    if Length >= 4 then
+      subtree:add(f_pversion, buf(3,1))     
+      subtree:add(f_verstr, buf(4, Length - 4))
+    end
+  elseif Command == 0x01 then
     pinfo.cols.info:append("Status ")
-  elseif FrameType == 0x02 then
+  elseif Command == 0x02 then
     pinfo.cols.info:append("Config ")
-  elseif FrameType == 0x03 then
+  elseif Command == 0x03 then
     pinfo.cols.info:append("Mode ")
-  elseif FrameType == 0x04 then
+  elseif Command == 0x04 then
     pinfo.cols.info:append("Frequency ")
     subtree:add_le(f_rxf, buf(4,4))         
     subtree:add_le(f_txf, buf(8,4))         
   end
   
   -- DMR
-  if FrameType >= 0x18 and FrameType <= 0x1E then
+  if Command >= 0x18 and Command <= 0x1E then
     subtree:add(f_Slot, buf(3,1))
     subtree:add(f_dsync, buf(3,1))
     subtree:add(f_async, buf(3,1))
