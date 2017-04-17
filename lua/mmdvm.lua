@@ -73,9 +73,21 @@ local f_Cmd = ProtoField.uint8("mmdvm.Cmd", "CMD", base.HEX, COMMAND)
 local f_Reaspm = ProtoField.uint8("mmdvm.Reason", "Reason", base.HEX)
 local f_pversion = ProtoField.uint8("mmdvm.pversion", "Protocol Version", base.HEX)
 local f_verstr = ProtoField.string("mmdvm.verstr", "Hardware Version", FT_STRING)
+
+local f_flags = ProtoField.uint16("mmdvm.flags", "Config Flags", base.HEX)
+local f_rxi = ProtoField.uint16("mmdvm.rxi", "RX Invert", base.HEX, nil, 0x0100)
+local f_txi = ProtoField.uint16("mmdvm.txi", "TX Invert", base.HEX, nil, 0x0200)
+local f_ptti = ProtoField.uint16("mmdvm.ptti", "PTT Invert", base.HEX, nil, 0x0400)
+local f_ysfLoDev = ProtoField.uint16("mmdvm.ysfLoDev", "YSF Low Dev", base.HEX, nil, 0x0800)
+local f_duplex = ProtoField.uint16("mmdvm.duplex", "Duplex", base.HEX, nil, 0x8000)
+local f_dstaren= ProtoField.uint16("mmdvm.dstaren", "DStar Enable", base.HEX, nil, 0x0001)
+local f_dmren= ProtoField.uint16("mmdvm.dmren", "DMR Enable", base.HEX, nil, 0x0002)
+local f_ysfen= ProtoField.uint16("mmdvm.ysfen", "DStar Enable", base.HEX, nil, 0x0004)
+local f_p25en= ProtoField.uint16("mmdvm.p25en", "P25 Enable", base.HEX, nil, 0x0008)
   
 p_mmdvm.fields = {f_fstart, f_len, f_Command, f_Slot, f_dsync, f_async, f_dtype, f_dmrdata, f_seq, 
-  f_Cmd, f_Reason, f_pversion, f_verstr, f_rxf, f_txf
+  f_Cmd, f_Reason, f_pversion, f_verstr, f_rxf, f_txf,
+  f_flags, f_rxi, f_txi, f_ptti, f_ysfLoDev, f_duplex, f_dstaren, f_dmren, f_ysfen, f_p25en
   }
 
 local fstart_Field = Field.new("mmdvm.fstart")
@@ -89,16 +101,18 @@ local len_Field = Field.new("mmdvm.len")
  -- myproto dissector function
 function p_mmdvm.dissector (buf, pinfo, root)
    -- validate packet length is adequate, otherwise quit
-  if buf:len() == 0 then return end
+  if buf:len() < 3 then return end
  
   -- Check N3UC addition of RX/TX Flag on Frame Start
+  -- a StartFrame of 0xE0 means the modem heard it and is sending it the serial port
+  -- a StartFrame of 0XE1 means the serial port sent the frame to the modem to transmit
   local RXTX = buf(0,1):uint() == 0xE1 
 
   subtree = root:add(p_mmdvm, buf(0))
   subtree:add(f_fstart, buf(0,1)) 
   
   pinfo.cols.protocol:append(p_mmdvm.name)
-  if RXTX == true then
+  if RXTX then
     pinfo.cols.protocol:append(" TX ")
   else
     pinfo.cols.protocol:append(" RX ")  
@@ -128,6 +142,17 @@ function p_mmdvm.dissector (buf, pinfo, root)
     pinfo.cols.info:append("Status ")
   elseif Command == 0x02 then
     pinfo.cols.info:append("Config ")
+    flags = subtree:add(f_flags, buf(3,2))     
+    flags:add(f_duplex, buf(3,2))     
+    flags:add(f_ysfLoDev, buf(3,2))     
+    flags:add(f_ptti, buf(3,2))     
+    flags:add(f_txi, buf(3,2))     
+    flags:add(f_rxi, buf(3,2))        
+    flags:add(f_p25en, buf(3,2))     
+    flags:add(f_ysfen, buf(3,2))     
+    flags:add(f_dmren, buf(3,2))     
+    flags:add(f_dstaren, buf(3,2))     
+    
   elseif Command == 0x03 then
     pinfo.cols.info:append("Mode ")
   elseif Command == 0x04 then
@@ -142,17 +167,19 @@ function p_mmdvm.dissector (buf, pinfo, root)
     subtree:add(f_dsync, buf(3,1))
     subtree:add(f_async, buf(3,1))
   
-    -- Check for DataSync and Decode low nibble
-    if dsync_Field().value == 1 then
-      subtree:add(f_dtype, buf(3,1))
-      local dt = dtype_Field().value
-      pinfo.cols.info:append("Data SYNC " .. tostring( DATATYPE[dt] ))
-    elseif async_Field().value == 1 then
-      pinfo.cols.info:append("Voice SYNC ")
-    else
-      subtree:add(f_seq, buf(3,1))
-      pinfo.cols.info:append("Seq " .. tostring(seq_Field().value) .. " ")  
-    end
+    if not RXTX then
+      -- Check for DataSync and Decode low nibble
+      if dsync_Field().value == 1 then
+        subtree:add(f_dtype, buf(3,1))
+        local dt = dtype_Field().value
+        pinfo.cols.info:append("Data SYNC " .. tostring( DATATYPE[dt] ))
+      elseif async_Field().value == 1 then
+        pinfo.cols.info:append("Voice SYNC ")
+      else
+        subtree:add(f_seq, buf(3,1))
+        pinfo.cols.info:append("Seq " .. tostring(seq_Field().value) .. " ")  
+      end
+    end  
 
     Dissector.get("dmr"):call(buf(4):tvb(), pinfo, root)
   end
