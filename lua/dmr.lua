@@ -101,7 +101,7 @@ function extract_data(deint_bits)
 end
     
 function dmr.dissector(tvbuf,pktinfo,root)
-    pktinfo.cols.protocol:set("DMR")
+    pktinfo.cols.protocol:append("DMR ")
 
     local pktlen = tvbuf:reported_length_remaining()
 
