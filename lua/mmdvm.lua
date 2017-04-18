@@ -58,15 +58,16 @@ local DATATYPE = { [0x0] = "PI Header",
 
 local MODE = {
         [00] = "IDLE",
-        [01] = "IDLE",
-        [02] = "IDLE",
-        [03] = "IDLE",
-        [04] = "IDLE",
+        [01] = "DSTAR",
+        [02] = "DMR",
+        [03] = "YSF",
+        [04] = "P25",
         [98] = "CW",
         [99] = "LOCKOUT",
         [100] = "ERROR",        
 }
         
+ -- Proto Fields
 p_mmdvm.fields.f_fstart = ProtoField.uint8("mmdvm.fstart", "FrameStart", base.HEX)
 p_mmdvm.fields.f_len = ProtoField.uint8("mmdvm.len", "Length", base.DEC)
 p_mmdvm.fields.f_Command = ProtoField.uint8("mmdvm.Command", "Command", base.HEX, COMMAND)
@@ -134,19 +135,30 @@ function p_mmdvm.dissector (buf, pinfo, root)
   -- ACK
   if Command == 0x70 then
     subtree:add(p_mmdvm.fields.f_Cmd, buf(3,1))   
-    pinfo.cols.info:append("ACK Command " .. buf(3,1) )
+    pinfo.cols.info:append("ACK Command " .. COMMAND[buf(3,1):uint()])
+
   elseif Command == 0x7F then
     subtree:add(p_mmdvm.fields.f_Cmd, buf(3,1))   
     subtree:add(p_mmdvm.fields.f_Reason, buf(4,1))   
-    pinfo.cols.info:append("NAK Command " .. buf(3,1) .. " Reason " .. buf(4,1) )
+    pinfo.cols.info:append("NAK Command " .. COMMAND[buf(3,1):uint()] .. " Reason " .. buf(4,1) )
+
   elseif Command == 0x00 then
-    pinfo.cols.info:append("Version ")
+    if RXTX then
+      pinfo.cols.info:append("Get Version ")
+    else
+      pinfo.cols.info:append("Version ")
+    end
     if Length >= 4 then
       subtree:add(p_mmdvm.fields.f_pversion, buf(3,1))     
       subtree:add(p_mmdvm.fields.f_verstr, buf(4, Length - 4))
     end
+
   elseif Command == 0x01 then
-    pinfo.cols.info:append("Status ")
+    if RXTX then
+      pinfo.cols.info:append("Get Status ")
+    else
+      pinfo.cols.info:append("Status ")
+    end
     if not RXTX then
       flags = subtree:add("Enabled Modes")     
         flags:add(p_mmdvm.fields.f_p25en, buf(3,1))     
@@ -168,7 +180,11 @@ function p_mmdvm.dissector (buf, pinfo, root)
     end  
 
   elseif Command == 0x02 then
-    pinfo.cols.info:append("Config ")
+    if RXTX then
+      pinfo.cols.info:append("Set Config ")
+    else
+      pinfo.cols.info:append("Get Config ")
+    end
     flags = subtree:add(p_mmdvm.fields.f_flags, buf(3,2))     
       flags:add(p_mmdvm.fields.f_duplex, buf(3,2))     
       flags:add(p_mmdvm.fields.f_ysfLoDev, buf(3,2))     
@@ -179,24 +195,33 @@ function p_mmdvm.dissector (buf, pinfo, root)
       flags:add(p_mmdvm.fields.f_ysfen, buf(3,2))     
       flags:add(p_mmdvm.fields.f_dmren, buf(3,2))     
       flags:add(p_mmdvm.fields.f_dstaren, buf(3,2))     
-    subtree:add(buf(5,1), "TX Delay: " .. buf(5,1):uint() * 10 .. " ms")     
-    subtree:add(buf(6,1), "Init Mode: " .. buf(6,1))     
-    subtree:add(buf(7,1), "RX Level: " .. buf(7,1):uint() * 100 / 255)     
-    subtree:add(buf(8,1), "CDID Level: " .. buf(8,1):uint() * 100 / 255)     
-    subtree:add(buf(9,1), "DMR Color Code: " .. buf(9,1))     
-    subtree:add(buf(10,1), "DMR Delay: " .. buf(10,1))     
-    subtree:add(buf(11,1), "reserved: " .. buf(11,1))     
+    subtree:add(buf(5,1),  "TX Delay      : " .. buf(5,1):uint() * 10 .. " ms")     
+    subtree:add(buf(6,1),  "Init Mode     : " .. buf(6,1))     
+    subtree:add(buf(7,1),  "RX Level      : " .. buf(7,1):uint() * 100 / 255)     
+    subtree:add(buf(8,1),  "CDID Level    : " .. buf(8,1):uint() * 100 / 255)     
+    subtree:add(buf(9,1),  "DMR Color Code: " .. buf(9,1))     
+    subtree:add(buf(10,1), "DMR Delay     : " .. buf(10,1))     
+    subtree:add(buf(11,1), "reserved      : " .. buf(11,1))     
     subtree:add(buf(12,1), "DStar TX Level: " .. buf(12,1):uint() * 100 / 255 )     
-    subtree:add(buf(13,1), "DMR TX Level: " .. buf(13,1):uint() * 100 / 255 )     
-    subtree:add(buf(14,1), "YSF TX Level: " .. buf(14,1):uint() * 100 / 255 )     
-    subtree:add(buf(15,1), "P25 TX Level: " .. buf(15,1):uint() * 100 / 255 )     
+    subtree:add(buf(13,1), "DMR TX Level  : " .. buf(13,1):uint() * 100 / 255 )     
+    subtree:add(buf(14,1), "YSF TX Level  : " .. buf(14,1):uint() * 100 / 255 )     
+    subtree:add(buf(15,1), "P25 TX Level  : " .. buf(15,1):uint() * 100 / 255 )     
     
   elseif Command == 0x03 then
-    pinfo.cols.info:append("Mode ")
+    if RXTX then
+      pinfo.cols.info:append("Set Mode ")
+    else
+      pinfo.cols.info:append("Mode ")
+    end
     subtree:add(buf(3,1), "Mode: " .. MODE[buf(3,1):uint()])     
     pinfo.cols.info:append(MODE[buf(3,1):uint()])    
+    
   elseif Command == 0x04 then
-    pinfo.cols.info:append("Frequency ")
+    if RXTX then
+      pinfo.cols.info:append("Set Frequency ")
+    else
+      pinfo.cols.info:append("Frequency ")
+    end
     subtree:add_le(p_mmdvm.fields.f_rxf, buf(4,4))         
     subtree:add_le(p_mmdvm.fields.f_txf, buf(8,4))         
   end
